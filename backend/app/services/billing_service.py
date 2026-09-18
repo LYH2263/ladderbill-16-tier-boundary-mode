@@ -2,7 +2,7 @@ import json
 
 from app.db import connect
 from app.engines.peak_compare import compare_plain_vs_peak
-from app.engines.tier_progressive import calc_bill
+from app.engines.tier_progressive import BOUNDARY_MODES, calc_bill
 from app.repositories import accounts as accounts_repo
 from app.repositories import readings as readings_repo
 from app.repositories import runs as runs_repo
@@ -44,14 +44,15 @@ class BillingService:
     def run_bill(self, kwh: float, peak: bool, account_id: int | None, persist: bool):
         tiers = tiers_repo.as_calc_rows(self._conn)
         pf = settings_repo.peak_factor(self._conn)
+        mode = settings_repo.boundary_mode(self._conn)
         factor = pf if peak else 1.0
-        result = calc_bill(kwh, tiers, factor)
+        result = calc_bill(kwh, tiers, factor, mode)
         run_id = None
         if persist:
             run_id = runs_repo.insert(
                 self._conn,
                 "bill",
-                {"kwh": kwh, "peak": peak, "account_id": account_id},
+                {"kwh": kwh, "peak": peak, "account_id": account_id, "boundary_mode": mode},
                 result,
                 account_id,
             )
@@ -60,11 +61,45 @@ class BillingService:
     def run_compare(self, kwh: float, persist: bool):
         tiers = tiers_repo.as_calc_rows(self._conn)
         pf = settings_repo.peak_factor(self._conn)
-        result = compare_plain_vs_peak(kwh, tiers, pf)
+        mode = settings_repo.boundary_mode(self._conn)
+        result = compare_plain_vs_peak(kwh, tiers, pf, mode)
         run_id = None
         if persist:
-            run_id = runs_repo.insert(self._conn, "compare", {"kwh": kwh}, result, None)
+            run_id = runs_repo.insert(
+                self._conn,
+                "compare",
+                {"kwh": kwh, "boundary_mode": mode},
+                result,
+                None,
+            )
         return {"run_id": run_id, **result}
+
+    def set_boundary_mode(self, mode: str):
+        if mode not in BOUNDARY_MODES:
+            raise ValueError(f"invalid boundary_mode: {mode}")
+        settings_repo.set_boundary_mode(self._conn, mode)
+        return {"boundary_mode": mode}
+
+    def run_boundary_compare(self, kwh: float, peak: bool = False):
+        """Read-only: same probe usage billed under both boundary modes.
+
+        Never writes a calc_run. Tier prices are untouched; only the band
+        owning the exact boundary point differs.
+        """
+        tiers = tiers_repo.as_calc_rows(self._conn)
+        pf = settings_repo.peak_factor(self._conn)
+        current = settings_repo.boundary_mode(self._conn)
+        factor = pf if peak else 1.0
+        results = {
+            mode: calc_bill(kwh, tiers, factor, mode) for mode in BOUNDARY_MODES
+        }
+        return {
+            "kwh": kwh,
+            "peak": peak,
+            "peak_factor": factor,
+            "current_mode": current,
+            "modes": results,
+        }
 
     def list_history(self, limit: int = 50):
         return runs_repo.list_recent(self._conn, limit)

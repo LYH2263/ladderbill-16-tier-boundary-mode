@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.schemas.billing import BillRequest, CompareRequest
+from app.schemas.billing import BillRequest, BoundaryCompareRequest, CompareRequest
 from app.services.billing_service import BillingService
 
 router = APIRouter(tags=["billing"])
@@ -16,3 +16,10 @@ def post_bill(body: BillRequest):
 def post_compare(body: CompareRequest):
     with BillingService() as svc:
         return svc.run_compare(body.kwh, body.persist)
+
+
+@router.post("/boundary-compare")
+def post_boundary_compare(body: BoundaryCompareRequest):
+    """Read-only side-by-side of both boundary modes; never persists a run."""
+    with BillingService() as svc:
+        return svc.run_boundary_compare(body.kwh, body.peak)
