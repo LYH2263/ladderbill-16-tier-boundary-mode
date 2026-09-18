@@ -1,5 +1,6 @@
 import pytest
 
+from app.engines.boundary_compare import compare_boundary_modes
 from app.engines.peak_compare import compare_plain_vs_peak
 from app.engines.tier_progressive import calc_bill
 
@@ -35,3 +36,60 @@ def test_compare_delta():
 def test_negative_kwh_raises():
     with pytest.raises(ValueError):
         calc_bill(-1, TIERS, 1.0)
+
+
+def test_default_boundary_mode_is_right():
+    r = calc_bill(180, TIERS, 1.0)
+    assert r["boundary_mode"] == "right"
+    assert r["total"] == 93.60
+    assert len(r["segments"]) == 1
+
+
+def test_right_mode_boundary_stays_in_lower_band():
+    r = calc_bill(180, TIERS, 1.0, "right")
+    assert r["boundary_mode"] == "right"
+    assert r["total"] == 93.60
+    assert [(s["from_kwh"], s["to_kwh"]) for s in r["segments"]] == [(0.0, 180.0)]
+
+
+def test_left_mode_boundary_moves_to_next_band():
+    r = calc_bill(180, TIERS, 1.0, "left")
+    assert r["boundary_mode"] == "left"
+    assert r["total"] == 93.70
+    assert [(s["from_kwh"], s["to_kwh"], s["price"]) for s in r["segments"]] == [
+        (0.0, 179.0, 0.52),
+        (179.0, 180.0, 0.62),
+    ]
+
+
+def test_left_mode_boundary_at_second_tier():
+    r = calc_bill(260, TIERS, 1.0, "left")
+    assert r["total"] == 143.40
+    assert [(s["from_kwh"], s["to_kwh"]) for s in r["segments"]] == [
+        (0.0, 180.0),
+        (180.0, 259.0),
+        (259.0, 260.0),
+    ]
+    assert calc_bill(260, TIERS, 1.0, "right")["total"] == 143.20
+
+
+def test_non_boundary_kwh_same_in_both_modes():
+    left = calc_bill(400, TIERS, 1.0, "left")
+    right = calc_bill(400, TIERS, 1.0, "right")
+    assert left["total"] == right["total"] == 258.00
+    assert left["segments"] == right["segments"]
+
+
+def test_invalid_boundary_mode_raises():
+    with pytest.raises(ValueError):
+        calc_bill(100, TIERS, 1.0, "middle")
+
+
+def test_boundary_compare_returns_both_modes():
+    c = compare_boundary_modes(180, TIERS)
+    assert c["kwh"] == 180.0
+    assert c["left"]["boundary_mode"] == "left"
+    assert c["right"]["boundary_mode"] == "right"
+    assert c["left"]["total"] == 93.70
+    assert c["right"]["total"] == 93.60
+    assert c["delta"] == 0.10

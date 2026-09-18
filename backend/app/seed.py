@@ -24,6 +24,9 @@ def init_db():
     );
     """
     )
+    # 幂等补齐：已有库升级时确保新模式设置存在
+    conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('boundary_mode', 'right')")
+    conn.commit()
     if conn.execute("SELECT COUNT(*) c FROM accounts").fetchone()["c"] == 0:
         conn.execute(
             "INSERT INTO accounts(name, meter_no, note) VALUES ('张家', 'M-1001', '对照：正常用量')"
@@ -39,6 +42,7 @@ def init_db():
         conn.execute("INSERT INTO readings(account_id, kwh, peak) VALUES (2, 400, 1)")
         conn.execute("INSERT INTO settings(key, value) VALUES ('peak_factor', '1.2')")
         conn.execute("INSERT INTO settings(key, value) VALUES ('currency', 'CNY')")
+        conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('boundary_mode', 'right')")
         tiers = [{"up_to": r[0], "price": r[1]} for r in [(180, 0.52), (260, 0.62), (None, 0.82)]]
         bill1 = calc_bill(120, tiers, 1.0)
         conn.execute(

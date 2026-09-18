@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+from app.engines.tier_progressive import BOUNDARY_MODES
+
 
 class BillRequest(BaseModel):
     account_id: int | None = None
@@ -11,6 +13,14 @@ class BillRequest(BaseModel):
 class CompareRequest(BaseModel):
     kwh: float = Field(ge=0)
     persist: bool = False
+
+
+class BoundaryCompareRequest(BaseModel):
+    kwh: float = Field(ge=0)
+
+
+class BoundaryModeUpdate(BaseModel):
+    value: str = Field(pattern=f"^({'|'.join(BOUNDARY_MODES)})$")
 
 
 class CalcRunOut(BaseModel):

@@ -1,8 +1,9 @@
 import json
 
 from app.db import connect
+from app.engines.boundary_compare import compare_boundary_modes
 from app.engines.peak_compare import compare_plain_vs_peak
-from app.engines.tier_progressive import calc_bill
+from app.engines.tier_progressive import BOUNDARY_MODES, calc_bill
 from app.repositories import accounts as accounts_repo
 from app.repositories import readings as readings_repo
 from app.repositories import runs as runs_repo
@@ -44,8 +45,9 @@ class BillingService:
     def run_bill(self, kwh: float, peak: bool, account_id: int | None, persist: bool):
         tiers = tiers_repo.as_calc_rows(self._conn)
         pf = settings_repo.peak_factor(self._conn)
+        mode = settings_repo.boundary_mode(self._conn)
         factor = pf if peak else 1.0
-        result = calc_bill(kwh, tiers, factor)
+        result = calc_bill(kwh, tiers, factor, mode)
         run_id = None
         if persist:
             run_id = runs_repo.insert(
@@ -60,11 +62,23 @@ class BillingService:
     def run_compare(self, kwh: float, persist: bool):
         tiers = tiers_repo.as_calc_rows(self._conn)
         pf = settings_repo.peak_factor(self._conn)
-        result = compare_plain_vs_peak(kwh, tiers, pf)
+        mode = settings_repo.boundary_mode(self._conn)
+        result = compare_plain_vs_peak(kwh, tiers, pf, mode)
         run_id = None
         if persist:
             run_id = runs_repo.insert(self._conn, "compare", {"kwh": kwh}, result, None)
         return {"run_id": run_id, **result}
+
+    def run_boundary_compare(self, kwh: float):
+        """只读双模式对比：不写运行记录。"""
+        tiers = tiers_repo.as_calc_rows(self._conn)
+        return compare_boundary_modes(kwh, tiers)
+
+    def update_boundary_mode(self, value: str):
+        if value not in BOUNDARY_MODES:
+            raise ValueError(f"boundary_mode must be one of {BOUNDARY_MODES}")
+        settings_repo.set_value(self._conn, "boundary_mode", value)
+        return {"boundary_mode": value}
 
     def list_history(self, limit: int = 50):
         return runs_repo.list_recent(self._conn, limit)
